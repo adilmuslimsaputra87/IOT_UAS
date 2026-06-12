@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Humidity Monitor — IoT Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    /* ── Design Tokens ─────────────────────────────────────────── */
+    :root {
+      --bg:          #F5F7FA;
+      --surface:     #FFFFFF;
+      --surface-2:   #EEF1F6;
+      --border:      #DDE2EC;
+      --text-primary:#1A2033;
+      --text-secondary:#6B7897;
+      --text-muted:  #A0ABBD;
+
+      --blue:        #2563EB;
+      --blue-light:  #EFF4FF;
+      --teal:        #0891B2;
+      --teal-light:  #ECFEFF;
+      --green:       #16A34A;
+      --green-light: #F0FDF4;
+      --amber:       #D97706;
+      --amber-light: #FFFBEB;
+      --red:         #DC2626;
+      --red-light:   #FEF2F2;
+
+      --radius:      12px;
+      --shadow:      0 1px 3px rgba(0,0,0,.07), 0 4px 12px rgba(0,0,0,.05);
+      --shadow-lg:   0 4px 24px rgba(0,0,0,.10);
+    }
+
+    /* ── Reset & Base ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--blue);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .logo-text {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.3px;
+    }
+
+    .logo-text span { color: var(--blue); }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .connection-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--surface-2);
+      color: var(--text-secondary);
+      transition: all .3s;
+    }
+
+    .connection-badge.connected {
+      background: var(--green-light);
+      color: var(--green);
+    }
+
+    .connection-badge.disconnected {
+      background: var(--red-light);
+      color: var(--red);
+    }
+
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse-dot 2s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all .15s;
+      font-family: inherit;
+    }
+    .btn:hover { background: var(--surface-2); border-color: #C0C8D8; }
+    .btn-primary {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+    }
+    .btn-primary:hover { background: #1D4ED8; border-color: #1D4ED8; }
+
+    main {
+      flex: 1;
+      padding: 28px 24px;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ── Page Header ───────────────────────────────────────────── */
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+    .page-subtitle { font-size: 13px; color: var(--text-secondary); margin-top: 3px; }
+    .page-actions { display: flex; gap: 8px; }
+
+    /* ── Alert Banner ──────────────────────────────────────────── */
+    #alert-container {
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .alert-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 500;
+      animation: slide-in .3s ease;
+    }
+
+    @keyframes slide-in {
+      from { transform: translateY(-8px); opacity: 0; }
+      to   { transform: translateY(0);   opacity: 1; }
+    }
+
+    .alert-item.danger  { background: var(--red-light);   color: var(--red);   border-left: 3px solid var(--red); }
+    .alert-item.warning { background: var(--amber-light); color: var(--amber); border-left: 3px solid var(--amber); }
+    .alert-time { margin-left: auto; color: inherit; opacity: .6; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+
+    /* ── Stat Cards ────────────────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow);
+      transition: box-shadow .2s;
+    }
+    .stat-card:hover { box-shadow: var(--shadow-lg); }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-value {
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -1px;
+      line-height: 1;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .stat-unit { font-size: 18px; font-weight: 400; color: var(--text-secondary); }
+
+    .stat-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    .stat-card.temp   .stat-value { color: var(--red); }
+    .stat-card.hum    .stat-value { color: var(--blue); }
+    .stat-card.hi     .stat-value { color: var(--amber); }
+    .stat-card.status .stat-value { font-size: 20px; font-family: 'Inter', sans-serif; font-weight: 600; }
+    .stat-card.status.normal  { border-top: 3px solid var(--green); }
+    .stat-card.status.warning { border-top: 3px solid var(--amber); }
+    .stat-card.status.danger  { border-top: 3px solid var(--red); }
+
+    /* ── Charts Grid ───────────────────────────────────────────── */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    @media (max-width: 768px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .chart-card.wide { grid-column: 1 / -1; }
+
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .chart-title { font-size: 14px; font-weight: 600; }
+    .chart-subtitle { font-size: 12px; color: var(--text-muted); }
+
+    .chart-wrap { position: relative; height: 220px; }
+
+    /* ── Data Table ────────────────────────────────────────────── */
+    .table-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .table-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .table-title { font-size: 14px; font-weight: 600; }
+
+    table { width: 100%; border-collapse: collapse; }
+
+    thead th {
+      padding: 10px 16px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background .1s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--surface-2); }
+
+    tbody td {
+      padding: 12px 16px;
+      font-size: 13px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+    }
+    .badge.normal  { background: var(--green-light);  color: var(--green); }
+    .badge.warning { background: var(--amber-light);  color: var(--amber); }
+    .badge.danger  { background: var(--red-light);    color: var(--red); }
+
+    /* ── Footer ────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    /* ── Gauge ─────────────────────────────────────────────────── */
+    .gauge-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .gauge-wrap { position: relative; height: 160px; }
+
+    /* ── Responsive ────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      header { padding: 0 16px; }
+      main { padding: 16px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .gauge-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ─────────────────────────────────────────────────── -->
+  <header>
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-icon">💧</div>
+        <span class="logo-text">Humidity <span>Monitor</span></span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="connection-badge disconnected" id="conn-badge">
+        <span class="dot"></span>
+        <span id="conn-text">Menghubungkan…</span>
+      </div>
+      <button class="btn btn-primary" onclick="exportCSV()">⬇ Export CSV</button>
+    </div>
+  </header>
+
+  <!-- ── Main ───────────────────────────────────────────────────── -->
+  <main>
+
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <div class="page-title">Smart IoT Dashboard</div>
+        <div class="page-subtitle" id="last-update">Menunggu data dari ESP32…</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn" onclick="fetchHistory()">🔄 Refresh</button>
+      </div>
+    </div>
+
+    <!-- Alerts -->
+    <div id="alert-container"></div>
+
+    <!-- Stat Cards -->
+    <div class="stats-grid">
+      <div class="stat-card temp">
+        <div class="stat-label">🌡️ Suhu</div>
+        <div class="stat-value" id="val-temp">--<span class="stat-unit">°C</span></div>
+        <div class="stat-sub" id="sub-temp">Menunggu data…</div>
+      </div>
+      <div class="stat-card hum">
+        <div class="stat-label">💧 Kelembaban</div>
+        <div class="stat-value" id="val-hum">--<span class="stat-unit">%</span></div>
+        <div class="stat-sub" id="sub-hum">Menunggu data…</div>
+      </div>
+      <div class="stat-card hi">
+        <div class="stat-label">🔥 Heat Index</div>
+        <div class="stat-value" id="val-hi">--<span class="stat-unit">°C</span></div>
+        <div class="stat-sub">Indeks panas terasa</div>
+      </div>
+      <div class="stat-card status normal" id="status-card">
+        <div class="stat-label">📊 Status</div>
+        <div class="stat-value" id="val-status">Normal</div>
+        <div class="stat-sub" id="val-device">Device: ESP32-01</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📈 Rata-rata Suhu</div>
+        <div class="stat-value" style="color:var(--text-primary)" id="stat-avg-t">--<span class="stat-unit">°C</span></div>
+        <div class="stat-sub">Semua data</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📉 Rata-rata Hum</div>
+        <div class="stat-value" style="color:var(--text-primary)" id="stat-avg-h">--<span class="stat-unit">%</span></div>
+        <div class="stat-sub">Semua data</div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-grid">
+      <div class="chart-card wide">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">Tren Suhu & Kelembaban</div>
+            <div class="chart-subtitle">Real-time — 30 data terakhir</div>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-main"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">Gauge Suhu</div>
+        </div>
+        <div class="chart-wrap" style="height:200px">
+          <canvas id="chart-gauge-t"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">Gauge Kelembaban</div>
+        </div>
+        <div class="chart-wrap" style="height:200px">
+          <canvas id="chart-gauge-h"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">Distribusi Status</div>
+        </div>
+        <div class="chart-wrap" style="height:200px">
+          <canvas id="chart-pie"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">Heat Index Trend</div>
+        </div>
+        <div class="chart-wrap" style="height:200px">
+          <canvas id="chart-hi"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="table-card">
+      <div class="table-header">
+        <div class="table-title">📋 Riwayat Pembacaan Sensor</div>
+        <span id="row-count" style="font-size:12px;color:var(--text-muted)">—</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>#ID</th>
+              <th>Waktu</th>
+              <th>Suhu (°C)</th>
+              <th>Kelembaban (%)</th>
+              <th>Heat Index</th>
+              <th>Device</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="data-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    Humidity Monitor v1.0 — IoT Smart Monitoring System · ESP32 + DHT11 · Built with Node.js & Chart.js
+  </footer>
+</div>
+
+<script>
+// ── Socket.IO ──────────────────────────────────────────────────────────────
+const socket = io();
+const connBadge = document.getElementById('conn-badge');
+const connText  = document.getElementById('conn-text');
+
+socket.on('connect', () => {
+  connBadge.className = 'connection-badge connected';
+  connText.textContent = 'Terhubung';
+});
+
+socket.on('disconnect', () => {
+  connBadge.className = 'connection-badge disconnected';
+  connText.textContent = 'Terputus';
+});
+
+socket.on('initial-data', (rows) => {
+  rows.forEach(r => addToChart(r));
+  renderTable(rows.slice().reverse());
+  if (rows.length) updateCards(rows[rows.length - 1]);
+  fetchStats();
+});
+
+socket.on('new-reading', (row) => {
+  addToChart(row);
+  prependRow(row);
+  updateCards(row);
+  fetchStats();
+  document.getElementById('last-update').textContent =
+    `Update terakhir: ${new Date().toLocaleTimeString('id-ID')}`;
+});
+
+socket.on('alert', (data) => showAlert(data));
+
+// ── Chart Setup ────────────────────────────────────────────────────────────
+const MAX_POINTS = 30;
+const labels = [], tempData = [], humData = [], hiData = [];
+
+function chartDefaults() {
+  Chart.defaults.font.family = "'Inter', sans-serif";
+  Chart.defaults.color = '#6B7897';
+}
+chartDefaults();
+
+// Main line chart
+const ctxMain = document.getElementById('chart-main').getContext('2d');
+const mainChart = new Chart(ctxMain, {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      {
+        label: 'Suhu (°C)',
+        data: tempData,
+        borderColor: '#DC2626',
+        backgroundColor: 'rgba(220,38,38,.08)',
+        fill: true,
+        tension: .4,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        borderWidth: 2,
+        yAxisID: 'y'
+      },
+      {
+        label: 'Kelembaban (%)',
+        data: humData,
+        borderColor: '#2563EB',
+        backgroundColor: 'rgba(37,99,235,.08)',
+        fill: true,
+        tension: .4,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        borderWidth: 2,
+        yAxisID: 'y1'
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { position: 'top', labels: { boxWidth: 12, usePointStyle: true } } },
+    scales: {
+      x: { grid: { color: '#EEF1F6' }, ticks: { maxTicksLimit: 8, font: { family: 'JetBrains Mono', size: 10 } } },
+      y:  { position: 'left',  grid: { color: '#EEF1F6' }, title: { display: true, text: '°C' }, min: 10, max: 50 },
+      y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '%' }, min: 0, max: 100 }
+    }
+  }
+});
+
+// Gauge chart helper
+function makeGauge(id, label, color, max) {
+  return new Chart(document.getElementById(id).getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [0, max],
+        backgroundColor: [color, '#EEF1F6'],
+        borderWidth: 0,
+        circumference: 270,
+        rotation: 225
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '72%',
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: false }
+      }
+    },
+    plugins: [{
+      id: 'gauge-label',
+      afterDraw(chart) {
+        const { ctx, width, height } = chart;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const cx = width / 2, cy = height / 2 + 14;
+        ctx.font = 'bold 28px JetBrains Mono, monospace';
+        ctx.fillStyle = '#1A2033';
+        ctx.fillText(chart.data.datasets[0].data[0], cx, cy - 4);
+        ctx.font = '12px Inter, sans-serif';
+        ctx.fillStyle = '#6B7897';
+        ctx.fillText(label, cx, cy + 22);
+        ctx.restore();
+      }
+    }]
+  });
+}
+
+const gaugeT = makeGauge('chart-gauge-t', '°C Suhu',  '#DC2626', 50);
+const gaugeH = makeGauge('chart-gauge-h', '% Kelembaban', '#2563EB', 100);
+
+// Pie chart
+const ctxPie = document.getElementById('chart-pie').getContext('2d');
+const pieChart = new Chart(ctxPie, {
+  type: 'doughnut',
+  data: {
+    labels: ['Normal', 'Warning', 'Danger'],
+    datasets: [{
+      data: [1, 0, 0],
+      backgroundColor: ['#16A34A', '#D97706', '#DC2626'],
+      borderWidth: 2,
+      borderColor: '#fff'
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '55%',
+    plugins: {
+      legend: { position: 'bottom', labels: { boxWidth: 10, usePointStyle: true, font: { size: 11 } } }
+    }
+  }
+});
+
+// Heat Index line chart
+const ctxHI = document.getElementById('chart-hi').getContext('2d');
+const hiChart = new Chart(ctxHI, {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [{
+      label: 'Heat Index',
+      data: hiData,
+      borderColor: '#D97706',
+      backgroundColor: 'rgba(217,119,6,.1)',
+      fill: true,
+      tension: .4,
+      borderWidth: 2,
+      pointRadius: 2
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: '#EEF1F6' }, ticks: { maxTicksLimit: 6, font: { size: 10 } } },
+      y: { grid: { color: '#EEF1F6' }, min: 10, max: 50 }
+    }
+  }
+});
+
+// ── Data Helpers ───────────────────────────────────────────────────────────
+function addToChart(row) {
+  const t = new Date(row.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  labels.push(t);
+  tempData.push(row.temperature);
+  humData.push(row.humidity);
+  hiData.push(row.heat_index);
+
+  if (labels.length > MAX_POINTS) {
+    labels.shift(); tempData.shift(); humData.shift(); hiData.shift();
+  }
+
+  mainChart.update('none');
+  hiChart.update('none');
+
+  // Update gauges
+  gaugeT.data.datasets[0].data = [row.temperature, 50 - row.temperature];
+  gaugeH.data.datasets[0].data = [row.humidity, 100 - row.humidity];
+  gaugeT.update('none');
+  gaugeH.update('none');
+}
+
+function updateCards(row) {
+  document.getElementById('val-temp').innerHTML = `${row.temperature}<span class="stat-unit">°C</span>`;
+  document.getElementById('val-hum').innerHTML  = `${row.humidity}<span class="stat-unit">%</span>`;
+  document.getElementById('val-hi').innerHTML   = `${row.heat_index ?? '--'}<span class="stat-unit">°C</span>`;
+  document.getElementById('val-device').textContent = `Device: ${row.device_id}`;
+
+  const statusEl   = document.getElementById('val-status');
+  const statusCard = document.getElementById('status-card');
+  const statusMap  = { normal: '✅ Normal', warning: '⚠️ Peringatan', danger: '🚨 Bahaya' };
+  statusEl.textContent = statusMap[row.status] || row.status;
+  statusCard.className = `stat-card status ${row.status}`;
+
+  const sub = `Min: -- / Max: --`;
+  document.getElementById('sub-temp').textContent = `Terakhir update ${new Date(row.timestamp).toLocaleString('id-ID')}`;
+  document.getElementById('sub-hum').textContent  = `Terakhir update ${new Date(row.timestamp).toLocaleString('id-ID')}`;
+}
+
+function renderTable(rows) {
+  const tbody = document.getElementById('data-table');
+  tbody.innerHTML = rows.map(rowHTML).join('');
+  document.getElementById('row-count').textContent = `${rows.length} data ditampilkan`;
+}
+
+function prependRow(row) {
+  const tbody = document.getElementById('data-table');
+  const existing = tbody.querySelectorAll('tr');
+  if (existing.length >= 50) existing[existing.length - 1].remove();
+  tbody.insertAdjacentHTML('afterbegin', rowHTML(row));
+  const cnt = document.getElementById('row-count');
+  cnt.textContent = `${tbody.querySelectorAll('tr').length} data ditampilkan`;
+}
+
+function rowHTML(r) {
+  return `<tr>
+    <td>${r.id}</td>
+    <td>${new Date(r.timestamp).toLocaleString('id-ID')}</td>
+    <td style="color:var(--red);font-weight:600">${r.temperature}</td>
+    <td style="color:var(--blue);font-weight:600">${r.humidity}</td>
+    <td>${r.heat_index ?? '--'}</td>
+    <td>${r.device_id}</td>
+    <td><span class="badge ${r.status}">${r.status === 'normal' ? '✅ Normal' : r.status === 'warning' ? '⚠️ Warning' : '🚨 Danger'}</span></td>
+  </tr>`;
+}
+
+async function fetchStats() {
+  try {
+    const res = await fetch('/api/stats');
+    const s   = await res.json();
+    document.getElementById('stat-avg-t').innerHTML = `${s.avg_temp}<span class="stat-unit">°C</span>`;
+    document.getElementById('stat-avg-h').innerHTML = `${s.avg_hum}<span class="stat-unit">%</span>`;
+
+    pieChart.data.datasets[0].data = [s.normal_count, s.warning_count, s.danger_count];
+    pieChart.update('none');
+  } catch (e) { console.warn('Stats fetch error', e); }
+}
+
+async function fetchHistory() {
+  try {
+    const res  = await fetch('/api/data?limit=50');
+    const rows = await res.json();
+    labels.length = 0; tempData.length = 0; humData.length = 0; hiData.length = 0;
+    rows.forEach(r => addToChart(r));
+    renderTable(rows.slice().reverse());
+    if (rows.length) updateCards(rows[rows.length - 1]);
+    fetchStats();
+  } catch (e) { console.warn('History fetch error', e); }
+}
+
+// ── Alert ──────────────────────────────────────────────────────────────────
+const alertContainer = document.getElementById('alert-container');
+const shownAlerts = [];
+
+function showAlert({ level, message, timestamp }) {
+  const key = message + timestamp;
+  if (shownAlerts.includes(key)) return;
+  shownAlerts.push(key);
+
+  const el = document.createElement('div');
+  el.className = `alert-item ${level}`;
+  el.innerHTML = `<span>${message}</span><span class="alert-time">${new Date(timestamp).toLocaleTimeString('id-ID')}</span>`;
+  alertContainer.prepend(el);
+
+  if (alertContainer.children.length > 5) alertContainer.lastChild.remove();
+  setTimeout(() => el.remove(), 15000);
+}
+
+// ── Export CSV ─────────────────────────────────────────────────────────────
+function exportCSV() {
+  window.location.href = '/api/export';
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+fetchHistory();
+</script>
+</body>
+</html>
