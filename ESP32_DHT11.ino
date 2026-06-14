@@ -16,14 +16,14 @@
 #include <ArduinoJson.h>
 
 // ── Konfigurasi WiFi ──────────────────────────────────────────
-const char* ssid     = "NAMA_WIFI_KAMU";      // ← ganti
-const char* password = "PASSWORD_WIFI_KAMU";  // ← ganti
+const char* ssid     = "itel S23";      // ← ganti
+const char* password = "ihihih10";  // ← ganti
 
 // ── URL Server ────────────────────────────────────────────────
 // Jika menggunakan Render.com, ganti dengan URL deployment kamu:
 // const char* serverURL = "https://humidity-monitor-xxxx.onrender.com/api/data";
 // Jika lokal (testing dengan laptop di WiFi yang sama):
-const char* serverURL = "http://192.168.1.X:3000/api/data"; // ← ganti IP laptop
+const char* serverURL = "https://humidity-monitor-production.up.railway.app/api/data"; // ← ganti IP laptop
 
 // ── Konfigurasi DHT11 ─────────────────────────────────────────
 #define DHTPIN  4        // GPIO pin tempat DATA DHT11 terhubung
